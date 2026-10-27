@@ -7,21 +7,102 @@ synthetic data. It is not affiliated with any commercial product and uses neutra
 
 Out of scope: the bots themselves, real payments, insurance, claims, scheduling, charting, real patient data.
 
-## Quick start
+## Run it locally (step by step)
+
+Everything runs in Docker with one command. You do not need Python or Node installed.
+
+### 1. Prerequisites
+
+| You need | Notes |
+|---|---|
+| **Docker Desktop** (or Docker Engine + the Compose plugin) | https://www.docker.com/products/docker-desktop/ |
+| **Git** | to clone the repo |
+| Free ports **8080, 8000, 8025, 1025** | changeable in `.env`, see below |
+
+**Windows only:** Docker Desktop needs WSL 2. If Docker says the engine can't start, open **PowerShell as
+Administrator**, run `wsl --install --no-distribution`, reboot, then start Docker Desktop and wait until it shows
+"Engine running". (Windows 11 Home has no other option; virtualization must be enabled in the BIOS.)
+
+### 2. Get the code
 
 ```bash
-cp .env.example .env      # optional, every value has a default
+git clone -b ledgerlab-mock-app https://github.com/nimjj/RPA-test-dentrix-duplicate.git
+cd RPA-test-dentrix-duplicate
+```
+
+### 3. Configure (optional)
+
+```bash
+cp .env.example .env        # Windows PowerShell: Copy-Item .env.example .env
+```
+
+Every value has a default, so you can skip this step. Edit `.env` to change ports, the seed password, CAPTCHA settings
+and so on. Never commit `.env`.
+
+### 4. Start everything
+
+```bash
 docker compose up --build
 ```
+
+The first run downloads images and builds the app, which takes a few minutes. It is ready when the log shows the
+backend as healthy and nginx started. Add `-d` to run in the background (`docker compose up --build -d`).
+
+### 5. Check that it works
+
+| What | URL | You should see |
+|---|---|---|
+| Health check | http://localhost:8000/api/health | `{"status":"ok"}` |
+| **The app** | http://localhost:8080 | the LedgerLab login page |
+| MFA emails (Mailpit) | http://localhost:8025 | an empty inbox, filling up as you log in |
+| Dev SMS Inbox (second MFA code) | http://localhost:8080/dev/sms | an empty message list |
+
+### 6. Log in for the first time
+
+Organization `sunrise`, username `bot_downtown`, password `LedgerLab!2026`. Because the browser is new you will be
+asked for two codes: the **email code** (open Mailpit, open the newest message) and the **SMS code** (the
+`/dev/sms` page). Then search `DT-100234`. The full click-by-click walkthrough is further down.
+All seeded users are listed under [Seeded logins](#seeded-logins).
+
+### 7. Stop, restart, reset
+
+```bash
+docker compose stop              # stop, keep your data
+docker compose up -d             # start again
+docker compose down              # remove containers, keep data (named volume)
+docker compose down -v           # remove containers AND data: a fresh seeded database next time
+```
+
+You can also reset the data from the app: log in as `admin`, open **Dev Settings**, **Reset database to seed data**.
+After changing code or `.env`, run `docker compose up --build -d` again.
+
+### Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `failed to connect to the docker API` / `dockerDesktopLinuxEngine` not found | Docker Desktop isn't running. Start it and wait for "Engine running". On Windows also see the WSL 2 note above |
+| `port is already allocated` / `address already in use` | Another program uses 8080, 8000, 8025 or 1025. Set `FRONTEND_PORT`, `BACKEND_PORT`, `MAILPIT_UI_PORT` or `MAILPIT_SMTP_PORT` in `.env`, then `docker compose up -d` |
+| Login always asks for MFA | Expected for a new browser. A login skips MFA only for a recognized device (cookie) or a trusted IP. Under Docker Desktop the app sees your IP as a gateway address such as `172.18.0.1` (check the **IP** column in the Audit Log). Add it under Dev Settings, Trusted IPs, to skip MFA |
+| No email code in Mailpit | Open http://localhost:8025 (not the app port). Check `docker compose logs mailpit backend` |
+| I locked myself out | 5 wrong passwords lock the account for 5 minutes; 5 more block it until an admin clicks **Reactivate** in Dev Settings. Or reset the data (step 7) |
+| Everything shows "Down for maintenance" | Outage mode is on. Open http://localhost:8080/login?dev=1, log in as `admin`, open Dev Settings and untick it |
+| "You were logged out due to inactivity" / "inappropriate usage" | The idle timeout (default 15 min) or bot detection ended your session. Both are working as designed, and both are adjustable in Dev Settings |
+| Something else is wrong | `docker compose ps` and `docker compose logs backend frontend` show what each service is doing |
+
+CAPTCHA is **off** by default (`CAPTCHA_PROVIDER=off`). To turn on the real Google check, see
+[Create the reCAPTCHA Enterprise key](#create-the-recaptcha-enterprise-key).
+
+### Ports and URLs at a glance
 
 | What | URL |
 |---|---|
 | The app | http://localhost:8080 |
 | MFA emails (Mailpit) | http://localhost:8025 |
-| Dev SMS Inbox (second MFA code) | http://localhost:8080/dev/sms |
-| API (direct), health check | http://localhost:8000/api/health |
+| Dev SMS Inbox | http://localhost:8080/dev/sms |
+| API (direct) | http://localhost:8000/api/health |
 
 Ports are configurable in `.env` (`FRONTEND_PORT`, `BACKEND_PORT`, `MAILPIT_UI_PORT`, `MAILPIT_SMTP_PORT`).
+The compose file publishes these ports on all network interfaces. On a shared network, bind them to `127.0.0.1`.
 
 ## Seeded logins
 

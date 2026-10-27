@@ -90,10 +90,14 @@ def public_config():
 
 
 @app.get("/api/_shell")
-def shell():
+def shell(request: Request):
     """nginx asks this before serving the SPA shell, so page loads get a real
-    HTTP 503 during an outage (and X-Accel-Redirect hands back index.html otherwise)."""
-    if _chaos_settings()["chaos_outage"]:
+    HTTP 503 during an outage (and X-Accel-Redirect hands back index.html otherwise).
+    Dev pages (/dev/*) and the admin login (/login?dev=1) stay reachable so an
+    admin can switch the outage off."""
+    path, _, query = request.headers.get("x-original-uri", "").partition("?")
+    dev_area = path.startswith("/dev") or (path == "/login" and "dev=1" in query.split("&"))
+    if _chaos_settings()["chaos_outage"] and not dev_area:
         return HTMLResponse(MAINTENANCE_HTML, status_code=503)
     return Response(status_code=200, headers={"X-Accel-Redirect": "/_spa/index.html"})
 

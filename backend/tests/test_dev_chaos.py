@@ -63,6 +63,11 @@ def test_shell_check_gives_503_page_during_outage():
     admin_client().put("/api/dev/settings", json={"chaos_outage": True})
     r = c.get("/api/_shell")
     assert r.status_code == 503 and "maintenance" in r.text.lower()
+    for uri in ("/login", "/patients", "/", "/login?dev=0"):
+        assert c.get("/api/_shell", headers={"x-original-uri": uri}).status_code == 503, uri
+    # the admin way back in stays reachable
+    for uri in ("/dev/settings", "/dev/audit", "/dev/sms", "/login?dev=1", "/login?x=1&dev=1"):
+        assert c.get("/api/_shell", headers={"x-original-uri": uri}).status_code == 200, uri
 
 
 # ------------------------------------------------------------------ slow mode

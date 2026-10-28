@@ -8,3 +8,5 @@ __pycache__/
 *.db-wal
 *.db-shm
 .pytest_cache/
+rpa/.auth/
+rpa/last_run_report.json

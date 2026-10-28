@@ -102,6 +102,7 @@ export default function DevSettings() {
           <small className="muted">
             Provider (from .env): <strong>{data.captcha_provider}</strong>
             {data.captcha_provider === "off" && " — no CAPTCHA widget is shown whatever the mode."}
+            {data.captcha_provider === "test" && " — using Google's official localhost test keys."}
           </small>
         </div>
         <Check label="Require a second MFA code by SMS (MFA_SMS_STEP)" checked={settings.mfa_sms_step} onChange={(v) => set("mfa_sms_step", v)} />

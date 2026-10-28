@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
+from .captcha import active_site_key
 from .config import cfg
 from .db import SessionLocal, init_db
 from .deps import MAINTENANCE_MESSAGE
@@ -82,7 +83,7 @@ def public_config():
     return {
         "app_name": "LedgerLab",
         "captcha_provider": cfg.captcha_provider,
-        "recaptcha_site_key": cfg.recaptcha_site_key,
+        "recaptcha_site_key": active_site_key(),
         "ui_changed": s["chaos_ui_changed"],
         "slow_mode": s["chaos_slow"],
         "outage": s["chaos_outage"],

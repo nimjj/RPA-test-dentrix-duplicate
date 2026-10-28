@@ -5,7 +5,12 @@ It copies the *workflows and behavior* a payment-posting bot has to deal with: t
 session timeouts, bot detection, patient lookup, the patient ledger and payment entry. It runs on your own machine with
 synthetic data. It is not affiliated with any commercial product and uses neutral branding.
 
-Out of scope: the bots themselves, real payments, insurance, claims, scheduling, charting, real patient data.
+Out of scope: real payments, insurance, claims, scheduling, charting, real patient data.
+
+Included in this repo:
+- **`backend/`** & **`frontend/`**: The LedgerLab web application (FastAPI + React SPA + Mailpit).
+- **`rpa/`**: A working **Playwright RPA payment-posting bot** and end-to-end test suite (`rpa/post_payments.py`, `rpa/test_rpa_e2e.py`).
+- **`samples/payments.csv`**: 20 synthetic card payments (including a duplicate transaction ID and an unknown account number) for testing the bot.
 
 ## Run it locally (step by step)
 
@@ -59,9 +64,11 @@ backend as healthy and nginx started. Add `-d` to run in the background (`docker
 
 ### 6. Log in for the first time
 
-Organization `sunrise`, username `bot_downtown`, password `LedgerLab!2026`. Because the browser is new you will be
-asked for two codes: the **email code** (open Mailpit, open the newest message) and the **SMS code** (the
-`/dev/sms` page). Then search `DT-100234`. The full click-by-click walkthrough is further down.
+Organization `sunrise`, username `bot_downtown`, password `LedgerLab!2026`. Because the browser is new you will see the
+**Google reCAPTCHA checkbox** on the password screen (`CAPTCHA_PROVIDER=test` is enabled by default using Google's
+official localhost test keys), followed by two MFA codes: the **email code** (open Mailpit at http://localhost:8025,
+open the newest message) and the **SMS code** (the `/dev/sms` page at http://localhost:8080/dev/sms). Then search
+`DT-100234`. The full click-by-click walkthrough is further down.
 All seeded users are listed under [Seeded logins](#seeded-logins).
 
 ### 7. Stop, restart, reset
@@ -89,8 +96,9 @@ After changing code or `.env`, run `docker compose up --build -d` again.
 | "You were logged out due to inactivity" / "inappropriate usage" | The idle timeout (default 15 min) or bot detection ended your session. Both are working as designed, and both are adjustable in Dev Settings |
 | Something else is wrong | `docker compose ps` and `docker compose logs backend frontend` show what each service is doing |
 
-CAPTCHA is **off** by default (`CAPTCHA_PROVIDER=off`). To turn on the real Google check, see
-[Create the reCAPTCHA Enterprise key](#create-the-recaptcha-enterprise-key).
+CAPTCHA is enabled out of the box in **test mode** (`CAPTCHA_PROVIDER=test`), which renders the real Google reCAPTCHA
+checkbox using Google's official localhost test keys (no Google Cloud account required). To switch to your own Google
+Cloud reCAPTCHA Enterprise project or turn it off, see [CAPTCHA configuration](#create-the-recaptcha-enterprise-key).
 
 ### Ports and URLs at a glance
 
@@ -137,10 +145,12 @@ Downtown uses `Visa`, `Mastercard`, … so a bot has to map card types per locat
 **Login.** Screen 1: organization + username. Screen 2: password (+ CAPTCHA when required). Failed logins return a generic
 message and never reveal whether the organization or user exists.
 
-**CAPTCHA** (`CAPTCHA_PROVIDER` in `.env`: `off` or `enterprise`). `off` shows no widget and checks nothing. With
-`enterprise` the page loads `https://www.google.com/recaptcha/enterprise.js`, shows the checkbox, and the backend calls
-`projects.assessments.create` and accepts the login only if `tokenProperties.valid` is true. The token is checked
-**before** the password. Mode (changeable on Dev Settings):
+**CAPTCHA** (`CAPTCHA_PROVIDER` in `.env`: `test`, `enterprise`, or `off`).
+- `test` (default): loads `https://www.google.com/recaptcha/enterprise.js` with Google's official localhost test site key (`6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI`), renders the real "I'm not a robot" checkbox widget, and verifies the token via Google's `siteverify` endpoint. Works immediately with zero cloud setup.
+- `enterprise`: uses your own Google Cloud reCAPTCHA Enterprise keys (`RECAPTCHA_PROJECT_ID`, `RECAPTCHA_SITE_KEY`, `RECAPTCHA_API_KEY`) and calls `projects.assessments.create`, accepting the login only if `tokenProperties.valid` is true.
+- `off`: shows no widget and checks nothing.
+
+The token is checked **before** the password. Mode (changeable on Dev Settings):
 
 | Mode | CAPTCHA shown when |
 |---|---|
@@ -252,22 +262,75 @@ npm run dev                                            # http://localhost:5173
 With `SMTP_HOST` empty the MFA email text is printed in the backend log (`MAIL (no SMTP_HOST ...)`). Or run Mailpit
 separately and set `SMTP_HOST=localhost`.
 
-## Tests
+## Run the Playwright RPA Bot & Tests
 
-```bash
-cd backend
-pip install -r requirements.txt
-python -m pytest -q
+The `rpa/` directory contains a complete Playwright RPA bot (`rpa/post_payments.py`) and end-to-end test suite (`rpa/test_rpa_e2e.py`) that:
+1. Logs into LedgerLab (`sunrise` / `bot_downtown` and `bot_lakeside`).
+2. Detects and clicks the **Google reCAPTCHA checkbox** on Login Screen 2 (and pauses for human interaction in `--headed` mode if an image challenge appears).
+3. Automatically retrieves the **6-digit Email MFA code** from the Mailpit REST API (`http://localhost:8025/api/v1/messages`) and the **6-digit SMS MFA code** from `GET /api/dev/sms/latest`.
+4. Saves the 90-day `ledgerlab_device` cookie (`rpa/.auth/<user>.json`) so subsequent runs skip CAPTCHA and MFA in `new_device` mode.
+5. Reads `samples/payments.csv`, searches each patient by account number, filters ledger notes by `transaction_id` to **skip duplicates** (`TX-10001`), skips unknown accounts (`LS-209999`), maps location-specific card labels (`Visa` vs. `VISA - Front Desk`), and paces requests to stay under LedgerLab's bot-detection limits (`BOT_MIN_ACTION_MS = 400ms` and `BOT_MAX_REQUESTS_PER_MIN = 60`).
+
+### 1. Install Playwright (one-time setup)
+
+Make sure the Docker stack is running (`docker compose up --build -d`) and Python 3.10+ is installed on your machine:
+
+**Windows (PowerShell):**
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r backend/requirements.txt -r rpa/requirements.txt
+playwright install chromium
 ```
 
-Covers login and lockout rules, MFA rules, CAPTCHA modes (Google call mocked), bot detection, idle timeout, amount
-handling, locked dates, location scoping, chaos switches and the audit log.
+**macOS / Linux:**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r backend/requirements.txt -r rpa/requirements.txt
+playwright install chromium
+```
+
+### 2. Watch the Playwright RPA Bot in a Visible Browser (`--headed`)
+
+Run a quick 3-payment demo in a visible Chromium window with a fresh device (forces reCAPTCHA + Email MFA + SMS MFA):
+
+```bash
+python rpa/post_payments.py --headed --fresh-device --limit 3
+```
+
+Run the full 20-row `samples/payments.csv` batch across both Downtown and Lakeside locations:
+
+```bash
+python rpa/post_payments.py --headed
+```
+
+After each run, a detailed JSON report is written to `rpa/last_run_report.json`.
+
+### 3. Run Automated Tests (Playwright E2E + Backend Unit Tests)
+
+**Run the live Playwright E2E test suite** (requires `docker compose up -d` running on `:8080`, `:8000`, `:8025`):
+
+```bash
+pytest rpa/test_rpa_e2e.py -v -s
+```
+
+What `rpa/test_rpa_e2e.py` tests:
+- `test_happy_path_first_and_second_login_with_recaptcha_and_mfa`: Fresh browser solves reCAPTCHA, completes Email + SMS MFA, posts a `$125.40` Visa payment to `DT-100234`, verifies the updated balance, logs out, and logs back in with the saved device cookie to verify that **both CAPTCHA and MFA are skipped on the second login**.
+- `test_full_samples_csv_batch`: Runs all 20 rows of `samples/payments.csv` and verifies that duplicate `TX-10001` and unknown account `LS-209999` are properly skipped.
+
+**Run the backend unit test suite** (116 tests, runs in-memory without Docker):
+
+```bash
+pytest backend/tests -q
+```
 
 ## Layout
 
 ```
 backend/    FastAPI + SQLAlchemy + SQLite (app/, tests/)
 frontend/   React + Vite + TypeScript SPA, nginx config
+rpa/        Playwright RPA payment-posting bot & E2E tests (helpers.py, post_payments.py, test_rpa_e2e.py)
 samples/    payments.csv
 docker-compose.yml, .env.example
 ```

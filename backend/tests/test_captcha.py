@@ -157,3 +157,30 @@ def test_enterprise_http_error_fails_closed(monkeypatch):
 
     monkeypatch.setattr(captcha.httpx, "post", boom)
     assert captcha.verify_token("tok") is False
+
+
+def test_google_test_provider_uses_default_test_key_and_siteverify(monkeypatch, client):
+    monkeypatch.setattr(cfg, "captcha_provider", "test")
+    monkeypatch.setattr(cfg, "recaptcha_site_key", "")
+    info = identify(client)
+    assert info["captcha_required"] is True
+    assert info["captcha_provider"] == "test"
+    assert info["site_key"] == captcha.GOOGLE_TEST_SITE_KEY
+
+    seen = {}
+
+    class Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"success": True}
+
+    def fake_post(url, data=None, timeout=None):
+        seen.update(url=url, data=data)
+        return Resp()
+
+    monkeypatch.setattr(captcha.httpx, "post", fake_post)
+    assert captcha.verify_token("test-token") is True
+    assert seen["url"] == captcha.SITEVERIFY_URL
+    assert seen["data"] == {"secret": captcha.GOOGLE_TEST_SECRET_KEY, "response": "test-token"}

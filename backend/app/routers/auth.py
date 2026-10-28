@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from .. import clock
 from ..audit import audit
-from ..captcha import captcha_required, verify_token
+from ..captcha import active_site_key, captcha_required, verify_token
 from ..config import cfg
 from ..db import get_db
 from ..deps import (
@@ -149,7 +149,7 @@ def identify(body: IdentifyIn, request: Request, db: Session = Depends(get_db)):
         "ok": True,
         "captcha_required": required,
         "captcha_provider": cfg.captcha_provider,
-        "site_key": cfg.recaptcha_site_key if required else "",
+        "site_key": active_site_key() if required else "",
     }
 
 
